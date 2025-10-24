@@ -44,8 +44,9 @@ public class User  implements UserDetails {
     @OneToMany(mappedBy = "user"  , cascade = CascadeType.ALL, orphanRemoval = true)
     private List<FileAccessLog> logs;
 
-    @OneToMany(mappedBy = "sharedWithUsers" , cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "sharedWithUser", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SharePermission> sharePermissions;
+
 
     // User Details Method
 

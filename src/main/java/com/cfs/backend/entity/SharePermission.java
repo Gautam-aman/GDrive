@@ -29,7 +29,7 @@ public class SharePermission {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name="user_id"  , nullable = false)
-    private User sharewithUser;
+    private User sharedWithUser;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
