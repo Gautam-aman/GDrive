@@ -2,6 +2,7 @@ package com.cfs.backend.config;
 
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -22,6 +23,7 @@ public class S3Config {
     @Value("${minio.secret.key:minioadmin}")
     private String secretKey;
 
+    @Bean
     public S3Client getS3Client() {
         return S3Client.builder()
                 .endpointOverride(URI.create(minioUrl))
