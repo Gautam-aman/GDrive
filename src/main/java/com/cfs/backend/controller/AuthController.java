@@ -10,6 +10,7 @@ import com.cfs.backend.security.SecurityUser;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -21,17 +22,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/auth")
+@RequiredArgsConstructor
 public class AuthController {
 
      private final UserRepo userRepo;
      private final PasswordEncoder passwordEncoder;
      private final FileNodeRepo fileNodeRepo;
 
-    public AuthController(UserRepo userRepo, PasswordEncoder passwordEncoder, FileNodeRepo fileNodeRepo) {
-        this.userRepo = userRepo;
-        this.passwordEncoder = passwordEncoder;
-        this.fileNodeRepo = fileNodeRepo;
-    }
+
 
     @PostMapping("/register")
     public ResponseEntity<?> registerUser(@RequestBody SignUpRequest signUpRequest) {
