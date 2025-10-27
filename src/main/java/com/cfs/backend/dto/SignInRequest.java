@@ -3,7 +3,7 @@ package com.cfs.backend.dto;
 import lombok.Data;
 
 @Data
-public class SignIn {
+public class SignInRequest {
     private String username;
     private String password;
 }

@@ -3,12 +3,15 @@ package com.cfs.backend.security;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -34,13 +37,7 @@ public class SecurityConfig {
         csrfTokenRequestAttributeHandler.setCsrfRequestAttributeName(null);
         http
                 .cors(cors->cors.configurationSource((corsConfigurationSource)))
-                //.csrf(csrf -> csrf.disable())
-
-                .csrf(csrf -> csrf
-                        .ignoringRequestMatchers("/auth/**")
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .csrfTokenRequestHandler(csrfTokenRequestAttributeHandler)
-                )
+                .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session->session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 )
@@ -60,7 +57,11 @@ public class SecurityConfig {
                         .invalidateHttpSession(true)
                         .logoutSuccessHandler((request, response, authentication) -> response.setStatus(200))
                 )
-                .userDetailsService(customUserDetailsService);
+                .userDetailsService(customUserDetailsService)
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+                );
+        ;
                 return http.build();
     }
 

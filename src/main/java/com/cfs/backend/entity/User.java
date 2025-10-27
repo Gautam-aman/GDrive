@@ -26,7 +26,7 @@ public class User  implements UserDetails {
     private String password;
 
     @Column(unique = true , nullable = false)
-    private String email;
+    private String username;
 
     @Column(nullable = false)
     private Long storageAlloted = 5_000_000_000L; // 5Gb Default
@@ -58,7 +58,7 @@ public class User  implements UserDetails {
 
     @Override
     public String getUsername() {
-        return this.email;
+        return this.username;
     }
 
     @Override

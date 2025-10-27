@@ -1,17 +1,13 @@
 package com.cfs.backend.controller;
 
-import com.cfs.backend.dto.SignIn;
 import com.cfs.backend.dto.SignUpRequest;
 import com.cfs.backend.entity.FileNode;
 import com.cfs.backend.entity.User;
 import com.cfs.backend.repo.FileNodeRepo;
 import com.cfs.backend.repo.UserRepo;
+
 import com.cfs.backend.security.SecurityUser;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,11 +29,11 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<?> registerUser(@RequestBody SignUpRequest signUpRequest) {
-            if(userRepo.findByEmail(signUpRequest.getEmail()).isPresent()){
+            if(userRepo.findByEmail(signUpRequest.getUsername()).isPresent()){
                 return ResponseEntity.badRequest().body("Email already exists");
             }
             User user = new User();
-            user.setEmail(signUpRequest.getEmail());
+            user.setUsername(signUpRequest.getPassword());
             user.setPassword(passwordEncoder.encode(signUpRequest.getPassword()));
             User savedUser = userRepo.save(user);
 
@@ -57,7 +53,7 @@ public class AuthController {
 
     }
 
-    @PostMapping("/login")
+    @PostMapping("/me")
     public ResponseEntity<?> getLoggedInUser(@AuthenticationPrincipal SecurityUser securityUser) {
         if(securityUser == null){
             return ResponseEntity.status(400).body("User not found");
