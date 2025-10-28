@@ -253,4 +253,76 @@ public class FileController {
         return totalSizeDeleted;
     }
 
+    @PatchMapping("/{fileId}/restore")
+    private ResponseEntity<?> restoreFile(@PathVariable Long fileId , @AuthenticationPrincipal SecurityUser securityUser){
+        if (securityUser == null){
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
+        }
+
+        try{
+            User user = securityUser.getUser();
+            FileNode file = fileNodeRepo.findById(fileId)
+                    .orElseThrow(() -> new RuntimeException("File not found"));
+            if(file.getOwner().getId().equals(user.getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+            }
+            if(!file.isDeleted()){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("File is not Trashed");
+            }
+
+            FileNode parent = file.getParent();
+            if(parent != null && parent.isDeleted()){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Restore folder to Restore file");
+            }
+            long totalRestoreSize = getRestoreSize(user , file);
+            long availableSize = user.getStorageAlloted() - user.getStorageUsed();
+            if (totalRestoreSize > availableSize) {
+                return  ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Not enough storage . Required : " + (totalRestoreSize + availableSize));
+            }
+            privateRecursiveRestore(file , user);
+            user.setStorageAlloted(totalRestoreSize + user.getStorageUsed());
+            userRepo.save(user);
+            return ResponseEntity.status(HttpStatus.OK).body("File Restored Successfully");
+        }
+
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
+
+    }
+
+    private void privateRecursiveRestore(FileNode file, User user) {
+        if(!file.isDeleted()){
+            return;
+        }
+        file.setDeleted(true);
+        file.setDeletedAt(null);
+        fileNodeRepo.save(file);
+        if (file.getIsDirectory()) {
+            List<FileNode> folderToRestore = fileNodeRepo.findByParentandOwner(file, user);
+            for(FileNode child : folderToRestore){
+                if(child.isDeleted()){
+                    privateRecursiveRestore(child , user);
+                }
+            }
+        }
+    }
+
+    private long getRestoreSize(User user, FileNode file) {
+        if (!file.isDeleted()) {
+            return 0;
+        }
+        long totalSize =0 ;
+        if(file.getIsDirectory()) {
+            List<FileNode> folderToDelete = fileNodeRepo.findByParentandOwner(file, user);
+            for (FileNode folder : folderToDelete) {
+                totalSize += getRestoreSize(user, folder);
+            }
+        }
+        else{
+            totalSize =  file.getFileSize();
+        }
+        return totalSize;
+    }
+
 }
