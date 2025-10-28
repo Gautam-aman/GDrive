@@ -8,6 +8,7 @@ import com.cfs.backend.repo.UserRepo;
 import com.cfs.backend.security.SecurityUser;
 import com.cfs.backend.services.StorageService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -19,12 +20,14 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.awt.print.Pageable;
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/files")
 @RequiredArgsConstructor
+@Slf4j
 public class FileController {
 
     private final FileNodeRepo fileNodeRepo;
@@ -232,7 +235,22 @@ public class FileController {
         if(file.isDeleted()){
              return 0;
         }
-
+        long totalSizeDeleted = 0;
+        if(file.getIsDirectory()) {
+            log.info("Deleting folder: " + file.getId());
+            List<FileNode> folderToDelete = fileNodeRepo.findByParentAndOwnerAndIsDeletedFalse(file, user);
+            for (FileNode folder : folderToDelete) {
+                totalSizeDeleted += softDelete(folder, user);
+            }
+        }
+        else{
+            log.info("Deleting file: " + file.getId());
+            totalSizeDeleted =  file.getFileSize();
+        }
+        file.setDeleted(true);
+        file.setDeletedAt(Instant.now());
+        fileNodeRepo.save(file);
+        return totalSizeDeleted;
     }
 
 }
