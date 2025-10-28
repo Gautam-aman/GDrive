@@ -56,7 +56,7 @@ public class AuthController {
     @PostMapping("/me")
     public ResponseEntity<?> getLoggedInUser(@AuthenticationPrincipal SecurityUser securityUser) {
         if(securityUser == null){
-            return ResponseEntity.status(400).body("User not found");
+            return ResponseEntity.status(400).body("User not Logged In");
         }
         return ResponseEntity.ok(securityUser.getUser());
     }

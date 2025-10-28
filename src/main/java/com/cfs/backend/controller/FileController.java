@@ -10,11 +10,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.net.URI;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/files")
@@ -26,6 +27,7 @@ public class FileController {
     private final UserRepo userRepo;
 
     @PostMapping("/upload")
+    @Transactional
     public ResponseEntity<String> uploadFile(
             @AuthenticationPrincipal SecurityUser securityUser,
             @RequestParam("file") MultipartFile file,
@@ -74,6 +76,66 @@ public class FileController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
 
+    }
+
+    @GetMapping("/list")
+    public ResponseEntity<?> listContent(
+            @AuthenticationPrincipal SecurityUser securityUser,
+            @RequestParam("parentId") Long parentId
+    ){
+        if(securityUser == null){
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged In");
+        }
+
+        try{
+            User user = securityUser.getUser();
+            FileNode parentFolder = fileNodeRepo.findById(parentId)
+                    .orElseThrow(() -> new RuntimeException("Folder not found"));
+            if(!parentFolder.getOwner().getId().equals(user.getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+            }
+            List<FileNode> content = fileNodeRepo.findByParentAndOwnerAndIsDeletedFalse(parentFolder, user);
+            return ResponseEntity.status(200).body(content);
+
+        }
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
+
+    }
+
+    @GetMapping("/download/{fileId}")
+    public ResponseEntity<?> downloadFile(@PathVariable Long fileId  , @AuthenticationPrincipal SecurityUser securityUser){
+        if (securityUser == null){
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
+        }
+        try{
+            FileNode file =  fileNodeRepo.findById(fileId)
+                    .orElseThrow(() -> new RuntimeException("File not found"));
+
+            if(!file.getOwner().getId().equals(securityUser.getUser().getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+            }
+
+            if(file.getIsDirectory()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("You can not download a Folder");
+            }
+
+            if (file.isDeleted()){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("This file is Deleted");
+            }
+
+            String downloadUrl = storageService.generateDownloadUrl(file.getStoragePath());
+
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(downloadUrl))
+                    .build();
+
+
+        }
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
     }
 
 }

@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface FileNodeRepo extends JpaRepository<FileNode, Long> {
-    List<FileNode> findByParentAndOwnerAndIsDeletedFalse(FileNode fileNode, User owner);
+    List<FileNode> findByParentAndOwnerAndIsDeletedFalse(FileNode parent, User owner);
     Optional<FileNode> findByParentAndIsDeletedFalse(FileNode fileNode);
+    Boolean findByParentAndFileNameAndOwner(FileNode file ,  String name, User owner);
+    Optional<FileNode> findBy(Long id, User owner);
 }
