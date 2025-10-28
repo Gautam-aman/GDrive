@@ -1,5 +1,6 @@
 package com.cfs.backend.controller;
 
+import com.cfs.backend.dto.RenameRequest;
 import com.cfs.backend.entity.FileNode;
 import com.cfs.backend.entity.User;
 import com.cfs.backend.repo.FileNodeRepo;
@@ -7,6 +8,8 @@ import com.cfs.backend.repo.UserRepo;
 import com.cfs.backend.security.SecurityUser;
 import com.cfs.backend.services.StorageService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -14,8 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.awt.print.Pageable;
 import java.net.URI;
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/files")
@@ -136,6 +141,98 @@ public class FileController {
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
+    }
+
+    @GetMapping("/recent")
+    public ResponseEntity<?> getRecentFiles(@AuthenticationPrincipal SecurityUser securityUser){
+        if (securityUser == null){
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
+        }
+        try {
+            User user = securityUser.getUser();
+            Pageable pageable = (Pageable) PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "id"));
+            List<FileNode> recentFiles = fileNodeRepo.findByOwnerAndIsDirectoryFalseAndIsDeletedFalse(user, pageable);
+            return ResponseEntity.ok(recentFiles);
+
+        }
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
+    }
+
+    @PatchMapping("/")
+    public ResponseEntity<?> renameFile(@AuthenticationPrincipal SecurityUser securityUser, @RequestParam("fileId") Long fileId,
+                                        RenameRequest renameRequest){
+
+        if(securityUser == null){
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
+        }
+
+        User user = securityUser.getUser();
+        FileNode file = fileNodeRepo.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("File not found"));
+
+        if (file.getOwner().getId().equals(user.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+        }
+
+        try{
+            String newName = renameRequest.getNewName().trim();
+            if (newName.contains("/") || newName.contains("\\")) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Name cannot contain '/' or '\\'");
+            }
+            FileNode parentNode = file.getParent();
+           Optional<FileNode> existingFile = fileNodeRepo.findByParentAndFileNameAndOwnerAndIsDeletedFalse(parentNode, newName, user);
+           if (existingFile.isPresent()  && !existingFile.get().getId().equals(file.getId())){
+               return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("File already exists");
+           }
+           file.setFileName(newName);
+            FileNode updatedNode = fileNodeRepo.save(file);
+            return ResponseEntity.ok(updatedNode);
+        }
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
+
+    }
+
+    @DeleteMapping("/{fileId}")
+    @Transactional
+    public ResponseEntity<?> deleteFile(@PathVariable Long fileId , @AuthenticationPrincipal SecurityUser securityUser){
+        if (securityUser == null){
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
+        }
+        try{
+            User user = securityUser.getUser();
+            FileNode file = fileNodeRepo.findById(fileId)
+                    .orElseThrow(() -> new RuntimeException("File not found"));
+
+            if(file.getOwner().getId().equals(user.getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+            }
+
+            if(file.isDeleted()){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("This file is Deleted");
+            }
+
+            long totalSizeDeleted = softDelete(file , user);
+            user.setStorageAlloted(user.getStorageUsed() - totalSizeDeleted);
+            userRepo.save(user);
+            return ResponseEntity.status(HttpStatus.OK).body("File Deleted Successfully");
+
+
+
+        }
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
+    }
+
+    private long softDelete(FileNode file, User user) {
+        if(file.isDeleted()){
+             return 0;
+        }
+
     }
 
 }
