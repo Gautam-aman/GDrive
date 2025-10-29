@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -61,4 +62,16 @@ public class StorageService {
 
     }
 
+    public void deleteFile(String storagePath) {
+        if(storagePath == null || storagePath.isEmpty()) {
+            log.warn("storagePath is null");
+            return;
+        }
+        DeleteObjectRequest deleteObjectRequest = DeleteObjectRequest.builder()
+                .bucket(bucketName)
+                .key(storagePath).build();
+
+        s3Client.deleteObject(deleteObjectRequest);
+
+    }
 }

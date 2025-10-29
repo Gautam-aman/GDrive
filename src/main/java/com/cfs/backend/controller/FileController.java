@@ -398,4 +398,49 @@ public class FileController {
         return false;
     }
 
+    @Transactional
+    @DeleteMapping("/trash/{fileId}")
+    public ResponseEntity<?> deleteFile(@AuthenticationPrincipal SecurityUser securityUser ,@PathVariable Long fileId) {
+        if(securityUser == null){
+            return  ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not logged in");
+        }
+        try{
+            User user = securityUser.getUser();
+            FileNode file = fileNodeRepo.findById(fileId)
+                    .orElseThrow(() -> new RuntimeException("File not found"));
+            if(!file.getOwner().getId().equals(user.getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+            }
+            if (!file.isDeleted()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("It is not Deleted");
+            }
+            privateRecursiveHardDelete(file , user);
+            return ResponseEntity.status(HttpStatus.OK).body("File Deleted Successfully");
+        }
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
+
+    }
+
+    private void privateRecursiveHardDelete(FileNode file, User user) {
+
+        if (file.getIsDirectory()){
+            List<FileNode> child = fileNodeRepo.findByParentAndOwner(file, user);
+            for( FileNode childFile : child ) {
+                privateRecursiveHardDelete(childFile, user);
+            }
+        }
+
+        if(!file.getIsDirectory()){
+            try{
+                storageService.deleteFile(file.getStoragePath());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+
+        }
+        fileNodeRepo.delete(file);
+    }
+
 }
