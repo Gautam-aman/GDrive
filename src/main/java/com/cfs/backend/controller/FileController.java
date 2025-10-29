@@ -9,7 +9,9 @@ import com.cfs.backend.security.SecurityUser;
 import com.cfs.backend.services.StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.awt.print.Pageable;
+
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -153,7 +155,7 @@ public class FileController {
         }
         try {
             User user = securityUser.getUser();
-            Pageable pageable = (Pageable) PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "id"));
+            Pageable pageable =PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "id"));
             List<FileNode> recentFiles = fileNodeRepo.findByOwnerAndIsDirectoryFalseAndIsDeletedFalse(user, pageable);
             return ResponseEntity.ok(recentFiles);
 
@@ -175,7 +177,7 @@ public class FileController {
         FileNode file = fileNodeRepo.findById(fileId)
                 .orElseThrow(() -> new RuntimeException("File not found"));
 
-        if (file.getOwner().getId().equals(user.getId())) {
+        if (!file.getOwner().getId().equals(user.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
         }
 
@@ -210,7 +212,7 @@ public class FileController {
             FileNode file = fileNodeRepo.findById(fileId)
                     .orElseThrow(() -> new RuntimeException("File not found"));
 
-            if(file.getOwner().getId().equals(user.getId())) {
+            if(!file.getOwner().getId().equals(user.getId())) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
             }
 
@@ -219,7 +221,7 @@ public class FileController {
             }
 
             long totalSizeDeleted = softDelete(file , user);
-            user.setStorageAlloted(user.getStorageUsed() - totalSizeDeleted);
+            user.setStorageUsed(user.getStorageUsed() - totalSizeDeleted);
             userRepo.save(user);
             return ResponseEntity.status(HttpStatus.OK).body("File Deleted Successfully");
 
@@ -254,7 +256,7 @@ public class FileController {
     }
 
     @PatchMapping("/{fileId}/restore")
-    private ResponseEntity<?> restoreFile(@PathVariable Long fileId , @AuthenticationPrincipal SecurityUser securityUser){
+    public ResponseEntity<?> restoreFile(@PathVariable Long fileId , @AuthenticationPrincipal SecurityUser securityUser){
         if (securityUser == null){
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
         }
@@ -263,7 +265,7 @@ public class FileController {
             User user = securityUser.getUser();
             FileNode file = fileNodeRepo.findById(fileId)
                     .orElseThrow(() -> new RuntimeException("File not found"));
-            if(file.getOwner().getId().equals(user.getId())) {
+            if(!file.getOwner().getId().equals(user.getId())) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
             }
             if(!file.isDeleted()){
@@ -280,7 +282,7 @@ public class FileController {
                 return  ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Not enough storage . Required : " + (totalRestoreSize + availableSize));
             }
             privateRecursiveRestore(file , user);
-            user.setStorageAlloted(totalRestoreSize + user.getStorageUsed());
+            user.setStorageUsed(totalRestoreSize + user.getStorageUsed());
             userRepo.save(user);
             return ResponseEntity.status(HttpStatus.OK).body("File Restored Successfully");
         }
@@ -295,11 +297,11 @@ public class FileController {
         if(!file.isDeleted()){
             return;
         }
-        file.setDeleted(true);
+        file.setDeleted(false);
         file.setDeletedAt(null);
         fileNodeRepo.save(file);
         if (file.getIsDirectory()) {
-            List<FileNode> folderToRestore = fileNodeRepo.findByParentandOwner(file, user);
+            List<FileNode> folderToRestore = fileNodeRepo.findByParentAndOwner(file, user);
             for(FileNode child : folderToRestore){
                 if(child.isDeleted()){
                     privateRecursiveRestore(child , user);
@@ -314,7 +316,7 @@ public class FileController {
         }
         long totalSize =0 ;
         if(file.getIsDirectory()) {
-            List<FileNode> folderToDelete = fileNodeRepo.findByParentandOwner(file, user);
+            List<FileNode> folderToDelete = fileNodeRepo.findByParentAndOwner(file, user);
             for (FileNode folder : folderToDelete) {
                 totalSize += getRestoreSize(user, folder);
             }
@@ -323,6 +325,77 @@ public class FileController {
             totalSize =  file.getFileSize();
         }
         return totalSize;
+    }
+
+    @Transactional
+    @PutMapping("/{fileId}/move")
+    public ResponseEntity<?> moveFile(@AuthenticationPrincipal SecurityUser securityUser ,
+                                       @PathVariable Long fileId, @RequestParam(required = false) Long targetFolderId) {
+        if (securityUser == null){
+            return  ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not logged in");
+        }
+
+        try{
+            User user = securityUser.getUser();
+            FileNode file = fileNodeRepo.findById(fileId)
+                    .orElseThrow(() -> new RuntimeException("File not found"));
+            if(!file.getOwner().getId().equals(user.getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+            }
+            FileNode newParent = null; // if you are moving to new root
+            if(targetFolderId != null) {
+                newParent = fileNodeRepo.findById(targetFolderId)
+                        .orElseThrow(() -> new RuntimeException("Folder not found"));
+
+                if(!newParent.getOwner().getId().equals(user.getId())) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+                }
+
+                if (!newParent.getIsDirectory()) {
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("It is not folder");
+                }
+                if (isMovingToSameFolder(file , newParent)){
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Already in same folder");
+                }
+
+                FileNode existingFile = fileNodeRepo.findByParentAndFileNameAndOwnerAndIsDeletedFalse(newParent , file.getFileName() , user)
+                        .orElseThrow(() -> new RuntimeException("Folder not found"));
+
+                if(existingFile != null){
+                    return  ResponseEntity.status(HttpStatus.FORBIDDEN).body("File already exists");
+                }
+
+                file.setParent(newParent);
+                fileNodeRepo.save(file);
+
+                return ResponseEntity.status(HttpStatus.OK).body("File Moved Successfully");
+
+            }
+            else {
+                return   ResponseEntity.status(HttpStatus.FORBIDDEN).body("No folder found");
+            }
+
+
+        }
+        catch (Exception ex){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
+
+
+    }
+
+    private boolean isMovingToSameFolder(FileNode file, FileNode newParent) {
+        if (!file.getIsDirectory()){
+            return false;
+        }
+        FileNode currentParent = file.getParent();
+        while (currentParent != null){
+            if (currentParent.getId().equals(newParent.getId())) {
+                return true;
+            }
+            currentParent = currentParent.getParent();
+        }
+        return false;
     }
 
 }
