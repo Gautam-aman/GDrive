@@ -21,7 +21,7 @@ public interface FileNodeRepo extends JpaRepository<FileNode, Long> {
     List<FileNode> findByOwnerAndIsDirectoryFalseAndIsDeletedFalse(User owner, Pageable pageable);
     Optional<FileNode> findByParentAndFileNameAndOwnerAndIsDeletedFalse(FileNode file, String name , User owner);
 
-    List<FileNode> findByParentandOwner(FileNode file, User user);
+    List<FileNode> findByOwnerAndParent(User user,FileNode file);
 
     List<FileNode> findByParentAndOwner(FileNode parent, User owner);
 
