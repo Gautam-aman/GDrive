@@ -5,11 +5,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-enum PermissionType{
-    VIEW ,
-    EDIT
-}
-
 @Entity
 @Data
 @AllArgsConstructor

@@ -1,9 +1,12 @@
 package com.cfs.backend.controller;
 
 import com.cfs.backend.dto.RenameRequest;
+import com.cfs.backend.dto.ShareRequest;
 import com.cfs.backend.entity.FileNode;
+import com.cfs.backend.entity.SharePermission;
 import com.cfs.backend.entity.User;
 import com.cfs.backend.repo.FileNodeRepo;
+import com.cfs.backend.repo.SharePermissionRepo;
 import com.cfs.backend.repo.UserRepo;
 import com.cfs.backend.security.SecurityUser;
 import com.cfs.backend.services.StorageService;
@@ -25,6 +28,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/files")
@@ -35,6 +39,7 @@ public class FileController {
     private final FileNodeRepo fileNodeRepo;
     private final StorageService storageService;
     private final UserRepo userRepo;
+    private final SharePermissionRepo sharePermissionRepo;
 
     @PostMapping("/upload")
     @Transactional
@@ -441,6 +446,54 @@ public class FileController {
 
         }
         fileNodeRepo.delete(file);
+    }
+
+    @PostMapping("/{fileId}/share")
+    @Transactional
+    public ResponseEntity<?> shareFile(@AuthenticationPrincipal SecurityUser securityUser , @PathVariable Long fileId , ShareRequest shareRequest) {
+        if(securityUser == null){
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not logged in");
+        }
+        User user = securityUser.getUser();
+        FileNode file = fileNodeRepo.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("File not found"));
+        if(!file.getOwner().getId().equals(user.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+        }
+
+        User shareWith = userRepo.findByEmail(shareRequest.getUserName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (user.getId().equals(shareWith.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You can not share this file with yourself");
+        }
+
+        if (sharePermissionRepo.findByFileNodeAndSharedWithUser(file , shareWith).isPresent()){
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You Have already shared this file");
+        }
+
+        SharePermission sharePermission = new SharePermission();
+        sharePermission.setFileNode(file);
+        sharePermission.setSharedWithUser(user);
+        sharePermission.setPermissionType(shareRequest.getPermissionType());
+        sharePermissionRepo.save(sharePermission);
+        return  ResponseEntity.status(HttpStatus.OK).body("Share Successfully");
+
+    }
+
+    @GetMapping("/shared-with-me")
+    public ResponseEntity<?> getSharedWithMe(@AuthenticationPrincipal SecurityUser securityUser) {
+        if(securityUser == null){
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not logged in");
+        }
+        User user = securityUser.getUser();
+        List<SharePermission> sharePermissions = sharePermissionRepo.findBySharedWithUser(user);
+       List<FileNode> sharedFiles = sharePermissions.stream()
+               .map(SharePermission:: getFileNode)
+               .filter(fileNode -> !fileNode.isDeleted())
+               .toList();
+
+       return  ResponseEntity.status(HttpStatus.OK).body(sharedFiles);
     }
 
 }

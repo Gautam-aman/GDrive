@@ -33,7 +33,7 @@ public class AuthController {
                 return ResponseEntity.badRequest().body("Email already exists");
             }
             User user = new User();
-            user.setUsername(signUpRequest.getPassword());
+            user.setUsername(signUpRequest.getUsername());
             user.setPassword(passwordEncoder.encode(signUpRequest.getPassword()));
             User savedUser = userRepo.save(user);
 
