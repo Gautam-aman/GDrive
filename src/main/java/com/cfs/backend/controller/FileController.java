@@ -3,6 +3,7 @@ package com.cfs.backend.controller;
 import com.cfs.backend.dto.RenameRequest;
 import com.cfs.backend.dto.ShareRequest;
 import com.cfs.backend.entity.FileNode;
+import com.cfs.backend.entity.PermissionType;
 import com.cfs.backend.entity.SharePermission;
 import com.cfs.backend.entity.User;
 import com.cfs.backend.repo.FileNodeRepo;
@@ -12,7 +13,6 @@ import com.cfs.backend.security.SecurityUser;
 import com.cfs.backend.services.StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -28,7 +28,6 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/files")
@@ -47,7 +46,7 @@ public class FileController {
             @AuthenticationPrincipal SecurityUser securityUser,
             @RequestParam("file") MultipartFile file,
             @RequestParam("parentId") Long parentId
-            ){
+    ){
         if(securityUser == null){
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
         }
@@ -60,12 +59,12 @@ public class FileController {
             FileNode parentFolder = fileNodeRepo.findById(parentId)
                     .orElseThrow(() -> new RuntimeException("Parent folder not found"));
 
-            if (!parentFolder.getOwner().getId().equals(user.getId())) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+            if (!hasAccess(user, parentFolder, PermissionType.EDIT)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You do not have edit permissions for this folder");
             }
 
             if (user.getStorageUsed() + file.getSize() > user.getStorageAlloted()) {
-                   return ResponseEntity.status(HttpStatus.INSUFFICIENT_STORAGE).body("Not enough storage");
+                return ResponseEntity.status(HttpStatus.INSUFFICIENT_STORAGE).body("Not enough storage");
             }
 
             String storagePath = storageService.uploadFile(file, user.getId());
@@ -85,12 +84,10 @@ public class FileController {
             userRepo.save(user);
             return ResponseEntity.status(200).body("File uploaded successfully");
 
-
         }
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-
     }
 
     @GetMapping("/list")
@@ -106,9 +103,11 @@ public class FileController {
             User user = securityUser.getUser();
             FileNode parentFolder = fileNodeRepo.findById(parentId)
                     .orElseThrow(() -> new RuntimeException("Folder not found"));
-            if(!parentFolder.getOwner().getId().equals(user.getId())) {
+
+            if (!hasAccess(user, parentFolder, PermissionType.VIEW)) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
             }
+
             List<FileNode> content = fileNodeRepo.findByParentAndOwnerAndIsDeletedFalse(parentFolder, user);
             return ResponseEntity.status(200).body(content);
 
@@ -116,7 +115,6 @@ public class FileController {
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-
     }
 
     @GetMapping("/download/{fileId}")
@@ -125,10 +123,11 @@ public class FileController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
         }
         try{
+            User user = securityUser.getUser();
             FileNode file =  fileNodeRepo.findById(fileId)
                     .orElseThrow(() -> new RuntimeException("File not found"));
 
-            if(!file.getOwner().getId().equals(securityUser.getUser().getId())) {
+            if (!hasAccess(user, file, PermissionType.VIEW)) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
             }
 
@@ -145,8 +144,6 @@ public class FileController {
             return ResponseEntity.status(HttpStatus.FOUND)
                     .location(URI.create(downloadUrl))
                     .build();
-
-
         }
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
@@ -172,7 +169,7 @@ public class FileController {
 
     @PatchMapping("/")
     public ResponseEntity<?> renameFile(@AuthenticationPrincipal SecurityUser securityUser, @RequestParam("fileId") Long fileId,
-                                        RenameRequest renameRequest){
+                                        @RequestBody RenameRequest renameRequest){
 
         if(securityUser == null){
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
@@ -182,8 +179,8 @@ public class FileController {
         FileNode file = fileNodeRepo.findById(fileId)
                 .orElseThrow(() -> new RuntimeException("File not found"));
 
-        if (!file.getOwner().getId().equals(user.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+        if (!hasAccess(user, file, PermissionType.EDIT)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You do not have edit permissions for this file");
         }
 
         try{
@@ -192,18 +189,17 @@ public class FileController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Name cannot contain '/' or '\\'");
             }
             FileNode parentNode = file.getParent();
-           Optional<FileNode> existingFile = fileNodeRepo.findByParentAndFileNameAndOwnerAndIsDeletedFalse(parentNode, newName, user);
-           if (existingFile.isPresent()  && !existingFile.get().getId().equals(file.getId())){
-               return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("File already exists");
-           }
-           file.setFileName(newName);
+            Optional<FileNode> existingFile = fileNodeRepo.findByParentAndFileNameAndOwnerAndIsDeletedFalse(parentNode, newName, user);
+            if (existingFile.isPresent()  && !existingFile.get().getId().equals(file.getId())){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("File already exists");
+            }
+            file.setFileName(newName);
             FileNode updatedNode = fileNodeRepo.save(file);
             return ResponseEntity.ok(updatedNode);
         }
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-
     }
 
     @DeleteMapping("/{fileId}")
@@ -229,9 +225,6 @@ public class FileController {
             user.setStorageUsed(user.getStorageUsed() - totalSizeDeleted);
             userRepo.save(user);
             return ResponseEntity.status(HttpStatus.OK).body("File Deleted Successfully");
-
-
-
         }
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
@@ -240,7 +233,7 @@ public class FileController {
 
     private long softDelete(FileNode file, User user) {
         if(file.isDeleted()){
-             return 0;
+            return 0;
         }
         long totalSizeDeleted = 0;
         if(file.getIsDirectory()) {
@@ -291,11 +284,9 @@ public class FileController {
             userRepo.save(user);
             return ResponseEntity.status(HttpStatus.OK).body("File Restored Successfully");
         }
-
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-
     }
 
     private void privateRecursiveRestore(FileNode file, User user) {
@@ -335,7 +326,7 @@ public class FileController {
     @Transactional
     @PutMapping("/{fileId}/move")
     public ResponseEntity<?> moveFile(@AuthenticationPrincipal SecurityUser securityUser ,
-                                       @PathVariable Long fileId, @RequestParam(required = false) Long targetFolderId) {
+                                      @PathVariable Long fileId, @RequestParam(required = false) Long targetFolderId) {
         if (securityUser == null){
             return  ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not logged in");
         }
@@ -344,16 +335,18 @@ public class FileController {
             User user = securityUser.getUser();
             FileNode file = fileNodeRepo.findById(fileId)
                     .orElseThrow(() -> new RuntimeException("File not found"));
-            if(!file.getOwner().getId().equals(user.getId())) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+
+            if (!hasAccess(user, file, PermissionType.EDIT)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You do not have edit permissions for this file");
             }
-            FileNode newParent = null; // if you are moving to new root
+
+            FileNode newParent = null;
             if(targetFolderId != null) {
                 newParent = fileNodeRepo.findById(targetFolderId)
                         .orElseThrow(() -> new RuntimeException("Folder not found"));
 
-                if(!newParent.getOwner().getId().equals(user.getId())) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
+                if (!hasAccess(user, newParent, PermissionType.EDIT)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You do not have edit permissions for this folder");
                 }
 
                 if (!newParent.getIsDirectory()) {
@@ -374,19 +367,14 @@ public class FileController {
                 fileNodeRepo.save(file);
 
                 return ResponseEntity.status(HttpStatus.OK).body("File Moved Successfully");
-
             }
             else {
                 return   ResponseEntity.status(HttpStatus.FORBIDDEN).body("No folder found");
             }
-
-
         }
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-
-
     }
 
     private boolean isMovingToSameFolder(FileNode file, FileNode newParent) {
@@ -425,7 +413,6 @@ public class FileController {
         catch (Exception ex){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-
     }
 
     private void privateRecursiveHardDelete(FileNode file, User user) {
@@ -443,20 +430,24 @@ public class FileController {
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
-
         }
         fileNodeRepo.delete(file);
     }
 
     @PostMapping("/{fileId}/share")
     @Transactional
-    public ResponseEntity<?> shareFile(@AuthenticationPrincipal SecurityUser securityUser , @PathVariable Long fileId , ShareRequest shareRequest) {
+    public ResponseEntity<?> shareFile(
+            @AuthenticationPrincipal SecurityUser securityUser,
+            @PathVariable Long fileId,
+            @RequestBody ShareRequest shareRequest) {
+
         if(securityUser == null){
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not logged in");
         }
         User user = securityUser.getUser();
         FileNode file = fileNodeRepo.findById(fileId)
                 .orElseThrow(() -> new RuntimeException("File not found"));
+
         if(!file.getOwner().getId().equals(user.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body("You are not authorized");
         }
@@ -474,11 +465,11 @@ public class FileController {
 
         SharePermission sharePermission = new SharePermission();
         sharePermission.setFileNode(file);
-        sharePermission.setSharedWithUser(user);
+        sharePermission.setSharedWithUser(shareWith);
         sharePermission.setPermissionType(shareRequest.getPermissionType());
         sharePermissionRepo.save(sharePermission);
-        return  ResponseEntity.status(HttpStatus.OK).body("Share Successfully");
 
+        return  ResponseEntity.status(HttpStatus.OK).body("Share Successfully");
     }
 
     @GetMapping("/shared-with-me")
@@ -488,12 +479,35 @@ public class FileController {
         }
         User user = securityUser.getUser();
         List<SharePermission> sharePermissions = sharePermissionRepo.findBySharedWithUser(user);
-       List<FileNode> sharedFiles = sharePermissions.stream()
-               .map(SharePermission:: getFileNode)
-               .filter(fileNode -> !fileNode.isDeleted())
-               .toList();
+        List<FileNode> sharedFiles = sharePermissions.stream()
+                .map(SharePermission:: getFileNode)
+                .filter(fileNode -> !fileNode.isDeleted())
+                .toList();
 
-       return  ResponseEntity.status(HttpStatus.OK).body(sharedFiles);
+        return  ResponseEntity.status(HttpStatus.OK).body(sharedFiles);
     }
 
+    private boolean hasAccess(User user, FileNode file, PermissionType requiredLevel) {
+        FileNode current = file;
+        while (current != null) {
+            if (current.getOwner().getId().equals(user.getId())) {
+                return true;
+            }
+
+            Optional<SharePermission> perm = sharePermissionRepo.findByFileNodeAndSharedWithUser(current, user);
+            if (perm.isPresent()) {
+                return hasSufficientPermission(perm.get().getPermissionType(), requiredLevel);
+            }
+
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private boolean hasSufficientPermission(PermissionType actual, PermissionType required) {
+        if (actual == PermissionType.EDIT) {
+            return true;
+        }
+        return actual == PermissionType.VIEW && required == PermissionType.VIEW;
+    }
 }
