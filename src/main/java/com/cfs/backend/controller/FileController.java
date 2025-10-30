@@ -13,6 +13,7 @@ import com.cfs.backend.security.SecurityUser;
 import com.cfs.backend.services.StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -509,5 +510,34 @@ public class FileController {
             return true;
         }
         return actual == PermissionType.VIEW && required == PermissionType.VIEW;
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<?> searchFiles(
+            @AuthenticationPrincipal SecurityUser securityUser,
+            @RequestParam("q") String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        if (securityUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("You are not logged in");
+        }
+
+        User user = securityUser.getUser();
+
+        if (query == null || query.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("Search query cannot be empty");
+        }
+
+        try {
+            Pageable pageable = PageRequest.of(page, size);
+
+            Page<FileNode> results = fileNodeRepo.searchUserFiles(user, query.trim(), pageable);
+
+            return ResponseEntity.ok(results);
+
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+        }
     }
 }
