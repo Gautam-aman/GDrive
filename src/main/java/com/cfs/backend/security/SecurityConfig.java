@@ -13,7 +13,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfigurationSource;
 
 @EnableWebSecurity
@@ -33,38 +32,35 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        CsrfTokenRequestAttributeHandler csrfTokenRequestAttributeHandler = new CsrfTokenRequestAttributeHandler();
-        csrfTokenRequestAttributeHandler.setCsrfRequestAttributeName(null);
         http
-                .cors(cors->cors.configurationSource((corsConfigurationSource)))
-                .csrf(AbstractHttpConfigurer::disable)
-                .sessionManagement(session->session
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                )
+                .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 )
-                .authorizeHttpRequests(auth->auth
+                .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/register", "/auth/me", "/login", "/logout").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()
                 )
-                .formLogin(form->form
+                .formLogin(form -> form
                         .loginProcessingUrl("/login")
                         .successHandler((request, response, authentication) -> response.setStatus(200))
                         .failureHandler((request, response, exception) -> response.setStatus(401))
                 )
-                .logout(logout->logout
+                .logout(logout -> logout
                         .logoutUrl("/logout")
-                        .deleteCookies("JSESSIONID" , "XSRF-TOKEN")
+                        .deleteCookies("JSESSIONID", "XSRF-TOKEN")
                         .invalidateHttpSession(true)
                         .logoutSuccessHandler((request, response, authentication) -> response.setStatus(200))
                 )
                 .userDetailsService(customUserDetailsService)
-                .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+                .exceptionHandling(exceptions ->
+                        exceptions.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                 );
-        ;
-                return http.build();
+
+        return http.build();
     }
-
-
-
 }
